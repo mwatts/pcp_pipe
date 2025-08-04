@@ -10,7 +10,9 @@
       "WebFetch(domain:builds.modular.com)",
       "Bash(mkdir:*)",
       "Bash(mojo build:*)",
-      "Bash(.venv/bin/mojo build:*)"
+      "Bash(.venv/bin/mojo build:*)",
+      "Bash(./build_mojo_processor.sh:*)",
+      "Bash(mv:*)"
     ],
     "deny": []
   }

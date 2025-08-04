@@ -1,11 +1,11 @@
 #!/bin/bash
-# High-Performance Podcast Processor Setup
-# Leverages uv for fast package management and Mojo for acceleration
+# High-Performance Mojo Podcast Processor Setup
+# Installs Mojo and Python ML dependencies for the podcast processing pipeline
 
 set -e
 
-echo "🔥 High-Performance Podcast Processor Setup"
-echo "============================================"
+echo "🎙️ Mojo Podcast Processor Setup"
+echo "================================="
 
 # Color codes for output
 RED='\033[0;31m'
@@ -35,41 +35,22 @@ print_step() {
 check_system() {
     print_step "Checking system requirements..."
 
-    # Check Python version
+    # Check Python version (needed for ML models)
+    if ! command -v python3 &> /dev/null; then
+        print_error "Python 3 is required but not installed."
+        exit 1
+    fi
+
     PYTHON_VERSION=$(python3 --version | cut -d' ' -f2)
     PYTHON_MAJOR=$(echo $PYTHON_VERSION | cut -d. -f1)
     PYTHON_MINOR=$(echo $PYTHON_VERSION | cut -d. -f2)
     
     if [ "$PYTHON_MAJOR" -ne 3 ] || [ "$PYTHON_MINOR" -lt 8 ]; then
-        print_error "Python 3.8+ required. Please install Python 3.8 or higher."
+        print_error "Python 3.8+ required for ML model support."
         exit 1
     fi
     
-    if [ "$PYTHON_MINOR" -ge 13 ]; then
-        print_warning "Python 3.13+ detected. Some dependencies don't support Python 3.13 yet."
-        print_warning "Please use Python 3.8-3.12 for full compatibility."
-        print_status "Attempting to find compatible Python version..."
-        
-        # Try to find Python 3.12 or lower
-        for version in 3.12 3.11 3.10 3.9 3.8; do
-            if command -v python$version &> /dev/null; then
-                print_status "Found python$version, using it instead"
-                PYTHON_CMD="python$version"
-                break
-            fi
-        done
-        
-        if [ -z "$PYTHON_CMD" ]; then
-            print_error "No compatible Python version (3.8-3.12) found."
-            print_error "Please install Python 3.12 or lower. You can use:"
-            print_error "  brew install python@3.12  # for macOS"
-            print_error "  Or use pyenv to manage Python versions"
-            exit 1
-        fi
-    else
-        PYTHON_CMD="python3"
-        print_status "Python version $PYTHON_VERSION is compatible"
-    fi
+    print_status "Python version $PYTHON_VERSION is compatible"
 
     # Detect system architecture and GPU capabilities
     ARCH=$(uname -m)
@@ -78,41 +59,27 @@ check_system() {
     case "$OS" in
         darwin)
             if [ "$ARCH" = "arm64" ]; then
-                print_status "macOS ARM64 detected - will use Metal acceleration"
-                export USE_METAL=1
-                export USE_CUDA=0
+                print_status "macOS ARM64 detected - Metal acceleration available"
                 export GPU_TYPE="metal"
-            elif [ "$ARCH" = "x86_64" ]; then
+            else
                 print_status "macOS Intel detected - CPU-only mode"
-                export USE_METAL=0
-                export USE_CUDA=0
                 export GPU_TYPE="cpu"
             fi
             ;;
         linux)
             if command -v nvidia-smi &> /dev/null; then
-                print_status "NVIDIA GPU detected - will use CUDA acceleration"
-                export USE_CUDA=1
-                export USE_METAL=0
+                print_status "NVIDIA GPU detected - CUDA acceleration available"
                 export GPU_TYPE="cuda"
             elif command -v rocm-smi &> /dev/null; then
-                print_status "AMD GPU detected - will use ROCm acceleration"
-                export USE_ROCM=1
-                export USE_CUDA=0
-                export USE_METAL=0
+                print_status "AMD GPU detected - ROCm acceleration available"
                 export GPU_TYPE="rocm"
             else
                 print_status "No GPU detected - CPU-only mode"
-                export USE_CUDA=0
-                export USE_METAL=0
-                export USE_ROCM=0
                 export GPU_TYPE="cpu"
             fi
             ;;
         *)
             print_warning "Unknown OS: $OS - defaulting to CPU-only mode"
-            export USE_CUDA=0
-            export USE_METAL=0
             export GPU_TYPE="cpu"
             ;;
     esac
@@ -138,346 +105,244 @@ check_system() {
 
     export SYSTEM_ARCH="$ARCH"
     export SYSTEM_OS="$OS"
-    export PYTHON_CMD="$PYTHON_CMD"
 }
 
-# Install uv for fast package management
-install_uv() {
-    print_step "Installing uv (fast Python package manager)..."
-
-    if command -v uv &> /dev/null; then
-        print_status "uv already installed"
-        uv --version
-    else
-        print_status "Installing uv..."
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-        
-        # Add uv to PATH for current session
-        export PATH="$HOME/.cargo/bin:$PATH"
-        
-        if command -v uv &> /dev/null; then
-            print_status "uv installed successfully"
-            uv --version
-        else
-            print_error "Failed to install uv. Falling back to pip."
-            export USE_UV=0
-            return
-        fi
-    fi
-    export USE_UV=1
-}
-
-# Setup Mojo with proper macOS ARM support
-setup_mojo() {
-    print_step "Setting up Mojo for high-performance computing..."
+# Install Mojo
+install_mojo() {
+    print_step "Setting up Mojo..."
 
     # Check if Mojo is already installed
     if command -v mojo &> /dev/null; then
         print_status "Mojo already installed"
         mojo --version
-        export MOJO_AVAILABLE=1
         return
     fi
 
-    print_status "Mojo installation available but optional. Skipping for now."
-    print_status "To install Mojo later, visit: https://www.modular.com/max/install"
-    export MOJO_AVAILABLE=0
+    print_status "Installing Modular CLI and Mojo..."
+    print_status "This will download and install Mojo from Modular"
+    
+    # Install Modular CLI
+    if ! command -v modular &> /dev/null; then
+        print_status "Installing Modular CLI..."
+        curl -s https://get.modular.com | sh -
+        
+        # Source the shell configuration to get modular in PATH
+        if [ -f "$HOME/.bashrc" ]; then
+            source "$HOME/.bashrc" 2>/dev/null || true
+        fi
+        if [ -f "$HOME/.zshrc" ]; then
+            source "$HOME/.zshrc" 2>/dev/null || true
+        fi
+        
+        # Add to current session PATH
+        export PATH="$HOME/.modular/bin:$PATH"
+    fi
+
+    # Install Mojo
+    if command -v modular &> /dev/null; then
+        print_status "Installing Mojo..."
+        modular install mojo
+        
+        # Add Mojo to PATH
+        export PATH="$HOME/.modular/pkg/packages.modular.com_mojo/bin:$PATH"
+        
+        # Verify installation
+        if command -v mojo &> /dev/null; then
+            print_status "Mojo installed successfully"
+            mojo --version
+            
+            # Add to shell profile for persistence
+            SHELL_PROFILE=""
+            if [ -n "$ZSH_VERSION" ]; then
+                SHELL_PROFILE="$HOME/.zshrc"
+            elif [ -n "$BASH_VERSION" ]; then
+                SHELL_PROFILE="$HOME/.bashrc"
+            fi
+            
+            if [ -n "$SHELL_PROFILE" ]; then
+                echo 'export PATH="$HOME/.modular/pkg/packages.modular.com_mojo/bin:$PATH"' >> "$SHELL_PROFILE"
+                print_status "Added Mojo to PATH in $SHELL_PROFILE"
+            fi
+        else
+            print_error "Mojo installation failed"
+            exit 1
+        fi
+    else
+        print_error "Failed to install Modular CLI"
+        exit 1
+    fi
 }
 
-# Create virtual environment
-create_venv() {
-    print_step "Creating virtual environment..."
-    
-    if [ -d ".venv" ]; then
-        print_status "Virtual environment already exists"
-    else
-        $PYTHON_CMD -m venv .venv
-        print_status "Virtual environment created"
+# Install Python dependencies for ML models
+install_python_dependencies() {
+    print_step "Installing Python dependencies for ML models..."
+
+    # Create virtual environment if it doesn't exist
+    if [ ! -d ".venv" ]; then
+        print_status "Creating Python virtual environment..."
+        python3 -m venv .venv
     fi
     
     # Activate virtual environment
     source .venv/bin/activate
     print_status "Virtual environment activated"
-}
 
-# Install Python dependencies with correct PyTorch for platform
-install_dependencies() {
-    print_step "Installing Python dependencies for $SYSTEM_OS $SYSTEM_ARCH..."
+    # Upgrade pip
+    pip install --upgrade pip
 
-    if [ "$USE_UV" = "1" ]; then
-        print_status "Using uv for fast package installation..."
+    # Install PyTorch with correct backend for the platform
+    case "$GPU_TYPE" in
+        metal)
+            print_status "Installing PyTorch with Metal acceleration for macOS ARM..."
+            pip install torch torchvision torchaudio
+            ;;
+        cuda)
+            print_status "Installing PyTorch with CUDA acceleration..."
+            pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
+            ;;
+        rocm)
+            print_status "Installing PyTorch with ROCm acceleration..."
+            pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm5.6
+            ;;
+        *)
+            print_status "Installing PyTorch CPU-only version..."
+            pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+            ;;
+    esac
 
-        # Install PyTorch with correct backend for the platform
-        case "$GPU_TYPE" in
-            metal)
-                print_status "Installing PyTorch with Metal acceleration for macOS ARM..."
-                uv pip install torch torchvision torchaudio
-                ;;
-            cuda)
-                print_status "Installing PyTorch with CUDA acceleration..."
-                uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-                ;;
-            rocm)
-                print_status "Installing PyTorch with ROCm acceleration..."
-                uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm5.6
-                ;;
-            *)
-                print_status "Installing PyTorch CPU-only version..."
-                uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-                ;;
-        esac
+    # Install ML libraries needed by Mojo application
+    print_status "Installing ML model dependencies..."
+    pip install openai-whisper transformers[torch] spacy librosa soundfile yt-dlp requests numpy scipy scikit-learn
 
-        # Install project with all dependencies
-        print_status "Installing project dependencies..."
-        uv pip install -e .
-
-        # Install spaCy language model
-        print_status "Installing spaCy language model..."
-        uv pip install https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.7.1/en_core_web_lg-3.7.1-py3-none-any.whl
-
-    else
-        print_status "Using pip for package installation..."
-
-        # Install PyTorch first with correct backend
-        case "$GPU_TYPE" in
-            metal)
-                pip install torch torchvision torchaudio
-                ;;
-            cuda)
-                pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu118
-                ;;
-            rocm)
-                pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/rocm5.6
-                ;;
-            *)
-                pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
-                ;;
-        esac
-
-        # Install project
-        pip install -e .
-        python -m spacy download en_core_web_lg
-    fi
+    # Install spaCy language model
+    print_status "Installing spaCy language model..."
+    python -m spacy download en_core_web_sm
+    
+    # Try to install larger model if available
+    python -m spacy download en_core_web_lg 2>/dev/null || print_warning "Large spaCy model not available, using small model"
 
     print_status "Python dependencies installed successfully for $GPU_TYPE acceleration"
 }
 
-# Setup project structure with platform-specific optimizations
-setup_project() {
-    print_step "Setting up project structure..."
+# Build Mojo application
+build_mojo_app() {
+    print_step "Building Mojo podcast processor..."
 
-    # Create output directory
-    mkdir -p podcast_output
+    if ! command -v mojo &> /dev/null; then
+        print_error "Mojo not found. Please ensure Mojo is installed and in PATH."
+        exit 1
+    fi
 
-    # Create platform-optimized configuration
-    cat > config.json << EOF
-{
-    "system_info": {
-        "os": "$SYSTEM_OS",
-        "architecture": "$SYSTEM_ARCH",
-        "gpu_type": "$GPU_TYPE"
-    },
-    "acceleration": {
-        "use_mojo": $MOJO_AVAILABLE,
-        "use_metal": ${USE_METAL:-0},
-        "use_cuda": ${USE_CUDA:-0},
-        "use_rocm": ${USE_ROCM:-0}
-    },
-    "model_config": {
-        "default_whisper_model": "large-v3",
-        "use_local_models_only": true,
-        "speaker_diarization": "resemblyzer"
-    },
-    "performance": {
-        "max_concurrent_downloads": 4,
-        "batch_sizes": {
-            "cpu": {
-                "summarization": 1,
-                "entity_extraction": 8
-            },
-            "gpu": {
-                "summarization": 4,
-                "entity_extraction": 32
-            }
-        }
-    },
-    "optimizations": {
-        "async_processing": true,
-        "parallel_summarization": true,
-        "batch_entity_extraction": true,
-        "simd_audio_processing": $MOJO_AVAILABLE,
-        "local_only_processing": true
-    }
-}
-EOF
+    # Create build directory
+    mkdir -p build
 
-    print_status "Project structure created with $GPU_TYPE optimizations"
+    # Build the Mojo application
+    print_status "Compiling Mojo application..."
+    if ./build_mojo_processor.sh; then
+        print_status "Mojo application built successfully"
+    else
+        print_error "Failed to build Mojo application"
+        exit 1
+    fi
 }
 
-# Performance validation with platform-specific tests
+# Validate installation
 validate_setup() {
-    print_step "Validating installation for $SYSTEM_OS $SYSTEM_ARCH..."
+    print_step "Validating installation..."
+
+    # Test Mojo
+    if command -v mojo &> /dev/null; then
+        print_status "✓ Mojo available: $(mojo --version)"
+    else
+        print_error "✗ Mojo not available"
+        exit 1
+    fi
+
+    # Test Mojo application
+    if [ -f "./build/mojo_podcast_processor" ]; then
+        print_status "✓ Mojo podcast processor built"
+    else
+        print_error "✗ Mojo podcast processor not found"
+        exit 1
+    fi
+
+    # Activate virtual environment for Python tests
+    source .venv/bin/activate 2>/dev/null || true
 
     # Test Python imports
-    $PYTHON_CMD -c "
+    python3 -c "
 import torch
 import whisper
 import transformers
 import spacy
 import librosa
 import yt_dlp
-import resemblyzer
-import sklearn
 print('✓ All Python dependencies imported successfully')
-"
+" 2>/dev/null && print_status "✓ Python ML libraries available" || print_warning "Some Python libraries may have issues"
 
     # Test GPU acceleration based on platform
     case "$GPU_TYPE" in
         metal)
-            $PYTHON_CMD -c "
+            python3 -c "
 import torch
-print('PyTorch version:', torch.__version__)
-print('Metal Performance Shaders available:', torch.backends.mps.is_available())
 if torch.backends.mps.is_available():
-    device = torch.device('mps')
     print('✓ Metal acceleration ready')
-    # Test basic tensor operation
-    x = torch.randn(100, 100, device=device)
-    y = torch.mm(x, x.t())
-    print('✓ Metal tensor operations working')
 else:
     print('ℹ Metal not available, using CPU')
-"
+" 2>/dev/null
             ;;
         cuda)
-            $PYTHON_CMD -c "
+            python3 -c "
 import torch
-print('CUDA available:', torch.cuda.is_available())
 if torch.cuda.is_available():
-    print('CUDA device count:', torch.cuda.device_count())
-    print('CUDA device name:', torch.cuda.get_device_name(0))
     print('✓ CUDA acceleration ready')
 else:
     print('ℹ CUDA not available, using CPU')
-"
-            ;;
-        rocm)
-            $PYTHON_CMD -c "
-import torch
-print('ROCm available:', torch.cuda.is_available())  # PyTorch uses same API for ROCm
-if torch.cuda.is_available():
-    print('✓ ROCm acceleration ready')
-else:
-    print('ℹ ROCm not available, using CPU')
-"
+" 2>/dev/null
             ;;
         *)
-            $PYTHON_CMD -c "
-import torch
-print('PyTorch CPU version:', torch.__version__)
-print('✓ CPU-only mode configured')
-"
+            print_status "✓ CPU-only mode configured"
             ;;
     esac
 
-    # Test Resemblyzer for speaker diarization
-    $PYTHON_CMD -c "
-from resemblyzer import VoiceEncoder
-import torch
-
-device = 'cpu'
-# Test appropriate device for platform
-if torch.backends.mps.is_available():
-    device = 'cpu'  # Resemblyzer doesn't support MPS yet
-elif torch.cuda.is_available():
-    device = 'cuda'
-
-print(f'Testing Resemblyzer on {device}...')
-try:
-    encoder = VoiceEncoder(device=device)
-    print('✓ Resemblyzer loaded successfully')
-    print(f'✓ Speaker diarization ready on {device}')
-except Exception as e:
-    print(f'⚠ Resemblyzer warning: {e}')
-    print('Will fallback to CPU if needed')
-"
-
-    print_status "✓ Platform validation complete for $SYSTEM_OS $SYSTEM_ARCH with $GPU_TYPE acceleration"
+    print_status "✓ Installation validation complete"
 }
 
-# Create platform-optimized launcher script
-create_launcher() {
-    print_step "Creating platform-optimized launcher script..."
+# Create project structure
+setup_project() {
+    print_step "Setting up project structure..."
 
-    cat > podcast_processor.sh << 'EOF'
-#!/bin/bash
-# High-Performance Podcast Processor Launcher
+    # Create output directory
+    mkdir -p podcast_output
 
-# Activate virtual environment
-if [ -f ".venv/bin/activate" ]; then
-    source .venv/bin/activate
-fi
-
-# Platform-specific environment optimization
-OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-ARCH=$(uname -m)
-
-case "$OS" in
-    darwin)
-        # macOS optimizations
-        export OMP_NUM_THREADS=$(sysctl -n hw.ncpu)
-        export MKL_NUM_THREADS=$(sysctl -n hw.ncpu)
-        
-        if [ "$ARCH" = "arm64" ]; then
-            # Apple Silicon optimizations
-            export PYTORCH_ENABLE_MPS_FALLBACK=1
-            export PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0
-        fi
-        ;;
-    linux)
-        # Linux optimizations
-        export OMP_NUM_THREADS=$(nproc)
-        export MKL_NUM_THREADS=$(nproc)
-        export NUMEXPR_NUM_THREADS=$(nproc)
-        ;;
-esac
-
-# Run the processor
-python main.py "$@"
-EOF
-
-    chmod +x podcast_processor.sh
-
-    print_status "Platform-optimized launcher created: ./podcast_processor.sh"
+    print_status "Project structure created"
 }
 
 # Main installation flow
 main() {
-    print_step "Starting high-performance podcast processor setup..."
+    print_step "Starting Mojo podcast processor setup..."
 
     check_system
-    install_uv
-    setup_mojo
-    create_venv
-    install_dependencies
+    install_mojo
+    install_python_dependencies
     setup_project
+    build_mojo_app
     validate_setup
-    create_launcher
 
     echo ""
-    print_status "🎉 Installation complete for $SYSTEM_OS $SYSTEM_ARCH!"
+    print_status "🎉 Installation complete!"
     echo ""
     print_status "Platform Configuration:"
     echo "  OS/Architecture: $SYSTEM_OS/$SYSTEM_ARCH"
     echo "  GPU Type: $GPU_TYPE"
-    echo "  Mojo Available: $([ "$MOJO_AVAILABLE" = "1" ] && echo "Yes" || echo "No")"
+    echo "  Mojo: $(mojo --version 2>/dev/null || echo 'Not available')"
     echo ""
-    echo "Usage examples:"
-    echo "  Basic usage:    ./podcast_processor.sh 'https://example.com/podcast.mp3'"
-    echo "  With GPU:       ./podcast_processor.sh 'url' --use-gpu"
-    echo "  With Mojo:      ./podcast_processor.sh 'url' --use-mojo"
-    echo "  Setup env:      ./podcast_processor.sh --setup-env"
-    echo "  🔥 All processing runs locally - no external API tokens required!"
+    echo "Usage:"
+    echo "  ./build/mojo_podcast_processor 'https://example.com/podcast.mp3'"
+    echo "  ./build/mojo_podcast_processor --help"
+    echo ""
+    echo "The processor runs entirely in Mojo with Python ML model integration."
+    echo "All processing happens locally - no external API tokens required!"
     echo ""
 
     case "$GPU_TYPE" in
@@ -495,8 +360,11 @@ main() {
             ;;
     esac
 
-    echo "Configuration saved to: config.json"
-    echo "Output will be saved to: podcast_output/"
+    echo ""
+    echo "Next steps:"
+    echo "1. Test the installation: ./build/mojo_podcast_processor --help"
+    echo "2. Process your first podcast: ./build/mojo_podcast_processor 'your-url'"
+    echo "3. Check the output in: ./podcast_output/"
 }
 
 # Run main function
