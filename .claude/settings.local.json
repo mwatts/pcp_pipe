@@ -3,7 +3,14 @@
     "allow": [
       "Bash(./setup_scripts.sh:*)",
       "Bash(ls:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(chmod:*)",
+      "WebFetch(domain:docs.modular.com)",
+      "WebFetch(domain:builds.modular.com)",
+      "Bash(mkdir:*)",
+      "Bash(mojo build:*)",
+      "Bash(.venv/bin/mojo build:*)"
     ],
     "deny": []
   }

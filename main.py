@@ -32,27 +32,35 @@ from scipy.spatial.distance import cosine
 import warnings
 warnings.filterwarnings("ignore")
 
-# Import Mojo modules for performance-critical operations
+# Import Mojo interface for performance-critical operations
 try:
-    from mojo_accelerators import (
-        MojoAudioProcessor,
-        MojoTranscriptAnalyzer,
-        MojoEntityExtractor
-    )
-    MOJO_AVAILABLE = True
-    print("Mojo accelerators loaded successfully")
-except ImportError:
+    from mojo_interface import get_accelerators, mojo_interface
+    MOJO_AVAILABLE = mojo_interface.check_availability()
+    print(f"Mojo interface loaded. Acceleration available: {MOJO_AVAILABLE}")
+except ImportError as e:
+    print(f"Mojo interface not available ({e}), using Python-only implementations")
     MOJO_AVAILABLE = False
-    print("Mojo accelerators not available, falling back to Python implementations")
+    
+    # Fallback implementations
+    class DummyProcessor:
+        def load_and_preprocess(self, path): return None
+        def get_duration_fast(self, path): return 0.0
+    class DummyAnalyzer:
+        def create_optimal_chunks(self, text, length): return [text]
+    class DummyExtractor:
+        def extract_entities_parallel(self, segments, text, nlp): return []
+    
+    def get_accelerators():
+        return DummyProcessor(), DummyAnalyzer(), DummyExtractor()
 
-# Whisper import - will use Mojo-accelerated version if available
+# Whisper import - standard whisper for now
+# Note: Mojo-accelerated Whisper would require custom integration
 try:
-    if MOJO_AVAILABLE:
-        from .mojo_whisper import MojoWhisper as whisper
-    else:
-        import whisper
-except ImportError:
     import whisper
+except ImportError as e:
+    print(f"Error importing whisper: {e}")
+    print("Please install with: pip install openai-whisper")
+    whisper = None
 
 @dataclass
 class TimeOffset:
@@ -191,13 +199,21 @@ class HighPerformancePodcastProcessor:
             self.mojo_entity_extractor = None
             return
 
+        # Initialize accelerators (Mojo if available, Python fallbacks otherwise)
         try:
-            self.mojo_audio_processor = MojoAudioProcessor()
-            self.mojo_transcript_analyzer = MojoTranscriptAnalyzer()
-            self.mojo_entity_extractor = MojoEntityExtractor()
-            print("Mojo accelerators initialized successfully")
+            (
+                self.mojo_audio_processor,
+                self.mojo_transcript_analyzer,
+                self.mojo_entity_extractor
+            ) = get_accelerators()
+            
+            if MOJO_AVAILABLE:
+                print("Mojo accelerators initialized successfully")
+            else:
+                print("Using Python fallback implementations")
+                
         except Exception as e:
-            print(f"Warning: Mojo accelerators failed to initialize: {e}")
+            print(f"Warning: Accelerators failed to initialize: {e}")
             self.use_mojo = False
             self.mojo_audio_processor = None
             self.mojo_transcript_analyzer = None
