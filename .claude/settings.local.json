@@ -12,7 +12,10 @@
       "Bash(mojo build:*)",
       "Bash(.venv/bin/mojo build:*)",
       "Bash(./build_mojo_processor.sh:*)",
-      "Bash(mv:*)"
+      "Bash(mv:*)",
+      "Bash(find:*)",
+      "Bash(./build/mojo_podcast_processor --help)",
+      "Bash(.venv/bin/mojo:*)"
     ],
     "deny": []
   }
