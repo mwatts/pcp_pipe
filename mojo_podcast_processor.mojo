@@ -204,29 +204,38 @@ struct MojoPodcastProcessor(Copyable, Movable):
 
     fn process_podcast(self, url: String) raises -> PythonObject:
         """Complete podcast processing pipeline."""
-        var start_time = perf_counter_ns()
-        print("Starting Mojo podcast processing for:", url)
+    var start_time = perf_counter_ns()
+    print("Starting Mojo podcast processing for:", url)
 
-        # Download audio
-        var audio_path = self.download_audio(url)
+    # Download audio
+    var stage_t0 = perf_counter_ns()
+    var audio_path = self.download_audio(url)
+    var stage_t1 = perf_counter_ns()
         if audio_path == "":
             print("Audio download failed")
             var py = Python()
             return py.dict()
 
-        # Transcribe audio
-        var transcription_result = self.transcribe_audio(audio_path)
+    # Transcribe audio
+    var transcription_result = self.transcribe_audio(audio_path)
+    var stage_t2 = perf_counter_ns()
         var transcript_text = String(transcription_result["text"])
 
-        # Generate summary
-        var summary = self.generate_summary(transcript_text)
+    # Generate summary
+    var summary = self.generate_summary(transcript_text)
+    var stage_t3 = perf_counter_ns()
 
-        # Extract entities
-        var entities = self.extract_entities(transcript_text)
+    # Extract entities
+    var entities = self.extract_entities(transcript_text)
+    var stage_t4 = perf_counter_ns()
 
-        # Calculate processing time
-        var end_time = perf_counter_ns()
-        var processing_time = Float64(end_time - start_time) / 1_000_000_000.0
+    # Calculate processing time
+    var end_time = perf_counter_ns()
+    var processing_time = Float64(end_time - start_time) / 1_000_000_000.0
+    var t_download = Float64(stage_t1 - stage_t0) / 1_000_000_000.0
+    var t_transcribe = Float64(stage_t2 - stage_t1) / 1_000_000_000.0
+    var t_summary = Float64(stage_t3 - stage_t2) / 1_000_000_000.0
+    var t_entities = Float64(stage_t4 - stage_t3) / 1_000_000_000.0
 
         # Create result object using native Mojo Dict where possible
         var py = Python()
@@ -238,14 +247,21 @@ struct MojoPodcastProcessor(Copyable, Movable):
         result["entities"] = entities
         result["processing_time"] = processing_time
         result["device_used"] = self.device
-        result["mojo_acceleration"] = True
+    result["mojo_acceleration"] = True
+    var timings = py.dict()
+    timings["download"] = t_download
+    timings["transcribe"] = t_transcribe
+    timings["summary"] = t_summary
+    timings["entities"] = t_entities
+    timings["total"] = processing_time
+    result["timings"] = timings
 
-        # Save results - reuse hash calculation
-        var py_hashlib = py.import_module("hashlib")
-        var url_py = py.str(url)
-        var url_hash_full = py_hashlib.md5(url_py.encode()).hexdigest()[:12]
-        var base_name = "podcast_" + String(url_hash_full)
-        self.save_results(result, base_name)
+    # Save results - reuse hash calculation
+    var py_hashlib = py.import_module("hashlib")
+    var url_py = py.str(url)
+    var url_hash_full = py_hashlib.md5(url_py.encode()).hexdigest()[:12]
+    var base_name = "podcast_" + String(url_hash_full)
+    self.save_results(result, base_name)
 
         print("Mojo processing complete in", processing_time, "seconds")
         return result
@@ -265,19 +281,21 @@ fn print_help():
     print("  --output-dir <dir>       Output directory (default: ./podcast_output)")
     print("  --whisper-model <model>  Whisper model size (default: large-v3)")
     print("  --no-gpu                 Disable GPU usage")
+    print("  --benchmark              Write per-stage timing JSON to output_dir/benchmarks/latest.json")
     print("  --help                   Show this help message")
     print("")
     print("Examples:")
     print("  ./mojo_podcast_processor 'https://example.com/podcast.mp3'")
     print("  ./mojo_podcast_processor 'url' --output-dir ./results --no-gpu")
 
-fn parse_arguments() raises -> (String, String, String, Bool, Bool):
+fn parse_arguments() raises -> (String, String, String, Bool, Bool, Bool):
     """Parse command line arguments using native Mojo sys."""
     var url = ""
     var output_dir = "./podcast_output"
     var whisper_model = "large-v3"
     var use_gpu = True
     var show_help = False
+    var benchmark = False
 
     # Use native Mojo sys.argv - fallback to Python for now due to indexing limitations
     var py = Python()
@@ -287,7 +305,7 @@ fn parse_arguments() raises -> (String, String, String, Bool, Bool):
     # Check if we have enough arguments
     if argv.__len__() < 2:
         show_help = True
-        return (url, output_dir, whisper_model, use_gpu, show_help)
+        return (url, output_dir, whisper_model, use_gpu, show_help, benchmark)
 
     var i = 1
     while i < argv.__len__():
@@ -314,11 +332,39 @@ fn parse_arguments() raises -> (String, String, String, Bool, Bool):
                 break
         elif arg == "--no-gpu":
             use_gpu = False
+        elif arg == "--benchmark":
+            benchmark = True
         elif not arg.startswith("--") and url == "":
             url = arg
         i += 1
 
-    return (url, output_dir, whisper_model, use_gpu, show_help)
+    return (url, output_dir, whisper_model, use_gpu, show_help, benchmark)
+
+fn write_benchmark(result: PythonObject, output_dir: String) raises:
+    """Write benchmark timings to output_dir/benchmarks/latest.json."""
+    var py = Python()
+    var json_module = py.import_module("json")
+    var datetime = py.import_module("datetime")
+
+    # Build payload
+    var payload = py.dict()
+    payload["timestamp"] = String(datetime.datetime.now().isoformat())
+    payload["source_url"] = result["source_url"]
+    payload["device_used"] = result["device_used"]
+    payload["mojo_acceleration"] = result["mojo_acceleration"]
+    payload["timings"] = result["timings"]
+
+    # Ensure directory exists
+    var bench_dir = String(Path(output_dir) / "benchmarks")
+    makedirs(bench_dir, exist_ok=True)
+
+    # Write file
+    var out_path = String(Path(bench_dir) / "latest.json")
+    var builtins = py.import_module("builtins")
+    var f = builtins.open(out_path, 'w')
+    _ = json_module.dump(payload, f, indent=2, ensure_ascii=False)
+    _ = f.close()
+    print("Benchmark written to:", out_path)
 
 # Main function
 fn main() raises:
@@ -333,6 +379,7 @@ fn main() raises:
     var whisper_model = args[2]
     var use_gpu = args[3]
     var show_help = args[4]
+    var benchmark = args[5]
 
     if show_help or url == "":
         print_help()
@@ -345,6 +392,8 @@ fn main() raises:
 
         # Process podcast
         var result = processor.process_podcast(url)
+        if benchmark:
+            write_benchmark(result, output_dir)
 
         # Print summary
         print("")

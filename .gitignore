@@ -2,3 +2,4 @@ __pycache__/
 build/
 pcp_pipe.egg-info/
 podcast_output/
+.venv/
