@@ -1,15 +1,20 @@
 //! Pipeline orchestrator (stub)
 
 use anyhow::Result;
+use pcp_fetcher::fetch_to_file;
 use pcp_types::ProcessingResult;
+use std::time::Instant;
 
 pub async fn run_one(source_url: &str, output_dir: &str) -> Result<ProcessingResult> {
-    // Stubbed pipeline: returns an empty result without performing work.
+    let start = Instant::now();
+    let fetched = fetch_to_file(source_url, output_dir).await?;
+    let processing_time = start.elapsed().as_secs_f64();
+
     Ok(ProcessingResult {
-        source_url: source_url.to_string(),
-        audio_file_path: format!("{}/placeholder.dat", output_dir),
+        source_url: fetched.final_url,
+        audio_file_path: fetched.saved_path,
         transcript: String::new(),
         summary: String::new(),
-        processing_time: 0.0,
+        processing_time,
     })
 }

@@ -1,11 +1,21 @@
 [package]
 name = "pcp-fetcher"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
 tracing = { workspace = true }
-reqwest = { version = "0.12", features = ["stream"] }
-url = "2"
-bytes = "1"
+reqwest = { workspace = true }
+url = { workspace = true }
+bytes = { workspace = true }
+tokio = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+feed-rs = { workspace = true }
+futures-util = { workspace = true }
+
+[dev-dependencies]
+mockito = "1.6.1"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "fs"] }
+tempfile = "3"
