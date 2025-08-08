@@ -1,0 +1,43 @@
+# Just recipes for PCP Pipe
+
+set shell := ["/bin/sh", "-cu"]
+
+default:
+    @just --list
+
+# Install cargo-nextest if missing (optional convenience)
+setup:
+    cargo install cargo-nextest --locked --version ^0.9 || true
+
+# Build and checks
+build:
+    cargo build --workspace --locked
+
+check:
+    cargo check --workspace
+
+fmt:
+    cargo fmt --all
+
+fmt-check:
+    cargo fmt --all -- --check
+
+clippy:
+    cargo clippy --workspace -- -D warnings
+
+# Tests (use nextest)
+test:
+    cargo nextest run --workspace
+
+test-ci:
+    cargo nextest run --workspace --profile ci
+
+# Run CLI
+run url="https://example.com/audio.mp3":
+    cargo run -p pcp-cli -- {{url}}
+
+clean:
+    cargo clean
+
+update:
+    cargo update -w

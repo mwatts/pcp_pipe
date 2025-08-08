@@ -1,0 +1,13 @@
+# cargo-nextest configuration
+[profile.default]
+status-level = "fail"
+retries = 0
+
+[profile.ci]
+status-level = "fail"
+retries = 1
+fail-fast = false
+
+# Run tests in parallel by default
+[profile.default.junit]
+path = "target/nextest/default-junit.xml"

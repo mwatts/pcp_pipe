@@ -1,0 +1,9 @@
+[package]
+name = "pcp-pipeline"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+pcp-types = { path = "../types" }
+tracing = { workspace = true }

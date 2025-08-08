@@ -1,0 +1,13 @@
+[package]
+name = "pcp-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+pcp-pipeline = { path = "../../crates/pipeline" }
+pcp-types = { path = "../../crates/types" }
+pcp-utils = { path = "../../crates/utils" }
+serde_json = { workspace = true }
