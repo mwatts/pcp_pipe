@@ -34,17 +34,17 @@ tags should be used to categorize workitems. The tags should be used as follows:
 - `on hold`: for issues that are on hold or paused
 
 ### Documentation
-- **Mojo Language**: https://docs.modular.com/mojo/
-- **Mojo Manual**: https://docs.modular.com/mojo/manual/
-- **Basics**: https://docs.modular.com/mojo/manual/basics
-- **functions**: https://docs.modular.com/mojo/manual/functions
-- **variables**: https://docs.modular.com/mojo/manual/variables
-- **types**: https://docs.modular.com/mojo/manual/types
-- **operators**: https://docs.modular.com/mojo/manual/operators
-- **Control Flow**: https://docs.modular.com/mojo/manual/control-flow/
-- **Error Management**: https://docs.modular.com/mojo/manual/errors
-- **Structs Guide**: https://docs.modular.com/mojo/manual/structs
-- **modules and packages**: https://docs.modular.com/mojo/manual/packages
+- **Rust Language**: https://docs.modular.com/Rust/
+- **Rust Manual**: https://docs.modular.com/Rust/manual/
+- **Basics**: https://docs.modular.com/Rust/manual/basics
+- **functions**: https://docs.modular.com/Rust/manual/functions
+- **variables**: https://docs.modular.com/Rust/manual/variables
+- **types**: https://docs.modular.com/Rust/manual/types
+- **operators**: https://docs.modular.com/Rust/manual/operators
+- **Control Flow**: https://docs.modular.com/Rust/manual/control-flow/
+- **Error Management**: https://docs.modular.com/Rust/manual/errors
+- **Structs Guide**: https://docs.modular.com/Rust/manual/structs
+- **modules and packages**: https://docs.modular.com/Rust/manual/packages
 
 
-This project demonstrates production-ready Mojo development with real-world ML integration, serving as both a useful tool and a reference implementation for high-performance systems programming in Mojo.
+This project demonstrates production-ready Rust development with real-world ML integration, serving as both a useful tool and a reference implementation for high-performance systems programming in Rust.

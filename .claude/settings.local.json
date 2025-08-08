@@ -9,13 +9,13 @@
       "WebFetch(domain:docs.modular.com)",
       "WebFetch(domain:builds.modular.com)",
       "Bash(mkdir:*)",
-      "Bash(mojo build:*)",
-      "Bash(.venv/bin/mojo build:*)",
-      "Bash(./build_mojo_processor.sh:*)",
+      "Bash(Rust build:*)",
+      "Bash(.venv/bin/Rust build:*)",
+      "Bash(./build_Rust_processor.sh:*)",
       "Bash(mv:*)",
       "Bash(find:*)",
-      "Bash(./build/mojo_podcast_processor --help)",
-      "Bash(.venv/bin/mojo:*)"
+      "Bash(./build/Rust_podcast_processor --help)",
+      "Bash(.venv/bin/Rust:*)"
     ],
     "deny": []
   }

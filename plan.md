@@ -1,244 +1,137 @@
-# Python Interop Removal & Native Mojo Enablement Plan
+# PCP Pipe Implementation Plan (Revised)
 
-Goal: Transition the podcast processing pipeline from Python-dependent orchestration to a predominantly native Mojo implementation delivering true performance leverage (parallelism, SIMD, memory efficiency), while preserving correctness and gradually shrinking the Python surface until it becomes optional or removable.
+This plan reflects updated constraints: pure-Rust downloads (no yt-dlp), no ffmpeg/WAV conversion, remove entity extraction and Python entirely, and use kalosm to host/run LLMs locally in Rust.
 
----
-## Guiding Principles
-- Incremental replacement (avoid big bang rewrite)
-- Maintain a continuously runnable pipeline (feature flags / adapter abstraction)
-- Benchmark before & after each substitution (prove value)
-- Prefer well-defined intermediate formats (JSONL, segments) to decouple stages
-- Keep Python as *plugin* until fully displaced
-- Push complexity to edges (download / model packaging) while hardening core pipeline
+Docs for kalosm: https://docs.rs/kalosm/latest/kalosm/index.html
 
----
-## Current Python Dependency Surface (Inventory)
-| Capability | Python Lib | Used For | Replacement Strategy |
-|------------|-----------|----------|----------------------|
-| Downloading | yt-dlp | URL/media resolution + muxing | Phase 1 keep; Phase 3: optional native wrapper invoking yt-dlp via subprocess or pure HTTP fetch for simple MP3 URLs |
-| Transcription | whisper (Py) | Model load + inference | Phase 2: Evaluate native Whisper (C++) binding or Mojo reimplementation of inference core; interim: isolate behind `Transcriber` trait |
-| Summarization | transformers (DistilBART) | Abstractive summarization | Phase 4: Switch to extractive (Mojo-native) first; then optionally integrate a distilled encoder-decoder via ONNX runtime (if Mojo FFI available) |
-| NER | spaCy | Entity extraction | Phase 4: Replace with rule + statistical lightweight model (ONNX) or curated gazetteers + chunk classification |
-| Audio IO | librosa, numpy | Load waveform + duration | Phase 1: Replace with ffmpeg CLI (duration, conversion) then native WAV/MP3 decoder (Mojo) |
-| Hashing | hashlib | URL hash | Replace with native hashing util (Phase 1) |
-| JSON serialization | Python json | Results persistence | Mojo JSON or minimal writer (Phase 1) |
-| Data containers | Python dict/list | Mixed-type storage | Define Mojo struct hierarchy + typed union / variant enums |
+## Requirements checklist (updated)
+- [ ] CLI with options: --output-dir, --whisper-model [tiny|base|small|medium|large-v3], --no-gpu, --help
+- [ ] URL inputs: YouTube (where feasible), direct audio URLs, podcast RSS feeds
+- [ ] Download using Rust crates only (no yt-dlp). Handle redirects, playlists/feeds expansion.
+- [ ] No ffmpeg usage; do not convert to WAV. Support decoding audio directly in Rust for transcription.
+- [ ] Transcription with Whisper (large-v3 capable) with word-level timestamps
+- [ ] Summarization using kalosm LLMs (local inference)
+- [ ] Remove entity extraction (NER) and all Python dependencies
+- [ ] Multi-platform acceleration: CUDA, Metal (Apple Silicon), ROCm where applicable (via underlying libs)
+- [ ] Privacy-first: no external inference APIs
+- [ ] Structured JSON output matching README schema (sans entities)
+- [ ] Rust workspace layout: crates/ for libraries, bin/ for CLI, tests per crate
+- [ ] Documentation under docs/ using arc42; diagrams in docs/diagrams (d2 preferred)
 
----
-## Phased Roadmap Overview
-| Phase | Focus | Python Reduction % (est.) | Exit Criteria |
-|-------|-------|---------------------------|---------------|
-| 0 | Baseline Hardening | 0% | Benchmark & logging established |
-| 1 | Core Data & IO Native | 20–30% | Native JSON, hashing, path, result structs; audio duration via ffprobe |
-| 2 | Transcription Abstraction | 30–45% | `Transcriber` trait + adapter; single model load caching; preparation for native Whisper |
-| 3 | Audio Pipeline Native | 50–60% | Native decode (WAV) + chunk streaming + memory pipeline |
-| 4 | Summarization Refactor | 65–75% | Mojo extractive summarizer baseline (keywords, topic sentences) |
-| 5 | NER Replacement | 80–90% | Lightweight NER (regex + statistical classifier) |
-| 6 | Advanced ML Port | 90–100% | Native/FFI Whisper + optional ONNX summarizer |
+## High-level architecture
+- Orchestrator (pipeline) coordinates stages and produces final JSON.
+- Stages:
+  1) Fetcher: input URL(s) -> audio bytes/stream + metadata
+  2) Decoder: audio stream -> PCM frames (in-memory), with timing
+  3) Transcriber: PCM -> transcript with word timestamps
+  4) Summarizer: transcript -> abstractive summary via kalosm
+- Device manager selects acceleration backend (CUDA/MPS/ROCm/CPU) where supported.
+- Shared types crate ensures consistent data structures across stages.
 
----
-## Phase 0: Baseline Hardening (Pre-Replacement)
-Deliverables:
-- Introduce `logging.mojo` with leveled logger (INFO/DEBUG/WARN/ERROR, `--log-level`)
-- Add `benchmark.mojo` measuring: download, transcribe, summarize, entities, total
-- Add `env_report.mojo` printing environment & GPU capabilities
-- Wrap current pipeline with `PipelineStats` struct (timings & counters)
-Acceptance:
-- `./build/mojo_podcast_processor --env` prints environment
-- Benchmark JSON output persisted to `./benchmarks/latest.json`
+## Technology choices (Rust-only)
+- HTTP/Networking: reqwest (blocking or async via tokio), robust redirect handling, range requests, retries.
+- RSS/Feeds: rss or feed-rs for parsing.
+- YouTube support (without yt-dlp):
+  - Attempt using the innertube API via crates like youtube_dl_rs alternatives or ytapi; if not viable, limit to direct audio URLs and RSS enclosures initially, add YouTube later as a feature.
+  - Assumption for M0-M1: prioritize direct audio URLs and RSS enclosures; document YouTube as deferred.
+- Audio decoding: symphonia for container/codec demux/decoding (MP3, M4A/AAC, WAV, FLAC, OGG). Avoid transcoding; decode to PCM in-memory for Whisper.
+- Whisper: whisper-rs (whisper.cpp) for transcription with timestamps; feed PCM frames directly.
+- Summarization: kalosm for local LLM hosting/inference; pick a small efficient model for summaries; chunk long transcripts.
+- CLI: clap (derive), anyhow/thiserror for errors.
+- Async runtime: tokio for IO+process mgmt; rayon optional for CPU-bound parallelism.
 
----
-## Phase 1: Core Data & IO Native
-Objectives:
-- Remove Python dict/list usage for final result aggregation
-- Replace hashing (md5) with native function (e.g., FNV-1a or xxHash binding) truncated to 12 chars
-- Implement minimal JSON serializer (support: String, Float64, Bool, Array, Object) → `json_writer.mojo`
-- Introduce strong types: `TranscriptSegment`, `Entity`, `ProcessingResult`
-- Audio duration via `ffprobe` subprocess (bridge) or basic WAV header parser (target both: simple first)
-Refactors:
-- `MojoPodcastProcessor` returns `ProcessingResult` instead of PythonObject
-- Provide Python bridge adapter that converts `ProcessingResult` for legacy compatibility flag `--legacy-json`
-Acceptance:
-- Pipeline runs with native JSON output by default
-- Removing Python `json` import does not affect functionality
-- No broad `except:` blocks remain in newly refactored modules
+- Logging: tracing + tracing-subscriber.
 
----
-## Phase 2: Transcription Abstraction
-Objectives:
-- Define `trait Transcriber { fn transcribe(path: String) -> Transcript }`
-- Provide `PythonWhisperTranscriber` adapter containing all remaining Python dependencies for transcription
-- Add model cache (singleton or lazy static) to prevent reload across invocations in same process
-- Stream segmentation: number of segments + timings captured early
-- Prepare spec for native Whisper port (model weights layout, mel spectrogram pipeline separation)
-Technical Notes:
-- Extract mel-spectrogram computation blueprint: implement in Mojo first (still call Python for decoding + inference)
-Acceptance:
-- Main pipeline depends only on trait; Python code confined to a single file
-- Benchmark shows model load time excluded after first run (cache hit)
+## Data contracts
+- Input: one or more URLs (string) on CLI.
+- Output JSON fields:
+  - source_url: string
+  - audio_file_path: string (downloaded original container file path)
+  - transcript: string
+  - summary: string
+  - processing_time: seconds (float)
+  (Note: no entities field; intentionally omitted.)
+- Filesystem outputs under output-dir per item using stable IDs. Store the original file as-is (no WAV conversion).
 
----
-## Phase 3: Audio Pipeline Native
-Objectives:
-- Native WAV decoder (PCM 16-bit & 32-bit float) supporting large file streaming in blocks
-- Implement mel-spectrogram in Mojo (reuse Phase 2 spec)
-- Optional: Use ffmpeg for non-WAV conversion (external) then process WAV natively
-- Replace librosa dependency fully
-Performance Targets:
-- Memory footprint reduced (no full waveform Python array duplication)
-- Spectrogram generation throughput meets or exceeds librosa baseline by ≥1.2x
-Acceptance:
-- Run pipeline on WAV input with `--no-python-audio` flag removing librosa import path
+## Workspace layout
+- crates/
+  - types/         (shared structs, JSON schemas)
+  - fetcher/       (reqwest-based downloader; RSS expansion; optional YouTube later)
+  - decoder/       (symphonia-based decode -> PCM frames API)
+  - transcribe/    (whisper-rs integration + model mgmt)
+  - summarize/     (kalosm wrapper for summarization)
+  - pipeline/      (orchestration, device selection, error boundaries)
+  - utils/         (logging, config, paths, time)
+- bin/
+  - pcp-cli/       (CLI using clap; wires pipeline)
+- docs/
+  - architecture/  (arc42; references diagrams)
+  - diagrams/      (*.d2 preferred, mermaid fallback)
+- podcast_output/ (default output dir)
 
----
-## Phase 4: Summarization Refactor (Extractive First)
-Objectives:
-- Implement extractive summarizer: TF-IDF + sentence ranking (similar to TextRank-lite)
-- Provide pluggable summarizer trait `Summarizer`
-- Keep Python DistilBART under `PythonAbstractiveSummarizer` adapter (optional)
-- Provide heuristics for chunk summarization & stitching
-Acceptance:
-- Default summarizer uses Mojo extractive method
-- Word count reduction ratio configurable
-- Summaries pass basic coherence checks (non-empty, reduced length)
+## Milestones and deliverables
 
----
-## Phase 5: NER Replacement
-Objectives:
-- Implement hybrid NER:
-  - Fast regex/pattern detection (ORG, PERSON, DATE, MONEY, PERCENT, URL)
-  - Gazetteer matching (custom dictionary file support)
-  - Optional statistical CRF / averaged perceptron (small model serialized compactly)
-- Provide `EntityExtractor` trait; existing spaCy path moved to adapter
-- Deduplicate + merge overlapping entities natively (already partial logic in accelerators)
-Acceptance:
-- Accuracy baseline evaluation vs spaCy on sample set (≥60% F1 initial acceptable; document gap)
-- Entities struct includes origin `method: rule|model|hybrid`
+M0: Scaffolding and docs (1–2 days)
+- Cargo workspace with crates and CLI bin per conventions.
+- docs/ with arc42 skeleton and initial d2 diagram stubs.
+- GitHub Actions: fmt, clippy, build matrix (macOS, ubuntu), basic tests.
 
----
-## Phase 6: Advanced ML Port
-Objectives:
-- Integrate native or FFI-based Whisper (options: direct port of encoder/decoder or ONNX runtime binding)
-- Replace Python summarizer with ONNX inference path if abstractive retained
-- Evaluate GPU kernels for mel + attention (SIMD + parallel loops)
-- Provide end-to-end Python-free build path (`--pure-mojo`)
-Acceptance:
-- `--pure-mojo` completes pipeline (download still may shell out to yt-dlp/ffmpeg only)
-- Performance benchmark shows ≥ previous Python-backed throughput
+M1: Fetcher + Storage (1–2 days)
+- Implement direct URL download with reqwest, robust file naming, checksum, resume (HTTP ranges if server supports).
+- RSS support: parse feed, extract audio enclosures, enqueue per-episode.
+- Defer YouTube support unless a reliable Rust-only approach is available; document as future work.
+- Tests: unit tests for URL normalization and RSS parsing; integration test behind feature flag for network.
 
----
-## Cross-Cutting Concerns
-### Error Model
-Introduce `enum PipelineError { Download(url), Transcription(detail), Summarization(detail), Entities(detail), IO(path), Internal(msg) }` with Display formatting. Replace silent catches.
+M2: Decoder (1–2 days)
+- Integrate symphonia to decode supported formats to PCM f32/i16 frames.
+- Provide iterator/streaming API with sample rate conversion if needed for Whisper (e.g., 16kHz mono).
+- Tests: decode tiny included sample files covering MP3/M4A/WAV.
 
-### Logging
-Add JSON logging mode `--log-format json` for machine ingestion; includes phase start/stop, durations, resource stats.
+M3: Transcription (2–4 days)
+- whisper-rs integration; model management (download gguf to cache if needed).
+- Word-level timestamps; device selection (MPS/CUDA/CPU) and --no-gpu flag.
+- Tests: smoke test on a few-second sample; allow skipping in CI.
 
-### Progress Events
-Emit structured progress callbacks (download_start, download_complete, transcribe_chunk, summarize_done, save_complete) enabling future UI/API integration.
+M4: Summarization with kalosm (2–3 days)
+- Wrap kalosm to load a compact model locally.
+- Implement chunking for long transcripts and merge summaries.
+- Tests: deterministic/snapshot testing on short text (acknowledging LLM variance; use prompts that minimize variation).
 
-### Configuration
-Central `Config` struct loaded from CLI + optional `pcp.toml` with precedence: CLI > env > file > defaults.
+M5: Pipeline integration (2–3 days)
+- Orchestrate fetch -> decode -> transcribe -> summarize.
+- Compose final JSON (without entities) and persist per item.
+- Progress logging and timing; partial failure handling.
 
-### Benchmarks & Regression Tracking
-Benchmark dimensions: total_time, transcription_time, summary_time, entity_time, rss (resource) memory_peak, model_load_time, throughput (sec audio / sec wall), CPU%, GPU util (if queryable). Write JSON + markdown table.
+M6: CLI polish + UX (1–2 days)
+ - Implement CLI flags from README.
+- Add --concurrency and --device [auto|cpu|gpu] options.
 
----
-## Refactoring Topology (Target Module Layout)
-```
-src/
-  config.mojo
-  logging.mojo
-  types/
-    transcript.mojo
-    entities.mojo
-    result.mojo
-  io/
-    download.mojo
-    audio_decode.mojo
-    json_writer.mojo
-  ml/
-    transcriber_trait.mojo
-    python_whisper_adapter.mojo
-    mel_spectrogram.mojo
-    summarizer_trait.mojo
-    extractive_summarizer.mojo
-    python_abstractive_summarizer.mojo
-    entity_extractor_trait.mojo
-    rule_ner.mojo
-    python_spacy_adapter.mojo
-  pipeline/
-    orchestrator.mojo
-    stages.mojo
-  util/
-    hashing.mojo
-    time_tracker.mojo
-    progress_events.mojo
-cli/
-  main.mojo
-bench/
-  benchmark.mojo
-```
-(Initial restructure can be logical inside existing file, then physical split.)
+M7: Performance & caching (2–3 days)
+- Cache models; reuse across items; tune thread pools.
+- Streaming decode to transcription to reduce memory.
 
----
-## Migration Mechanics
-| Step | Action | Risk Mitigation |
-|------|--------|-----------------|
-| 1 | Introduce traits & adapters (transcriber, summarizer, entity extractor) | Keep Python adapters default until stable |
-| 2 | Replace result assembly with Mojo structs + JSON writer | Compare diff of legacy vs new JSON via test harness |
-| 3 | Native hashing + remove hashlib import | Keep test verifying stable 12-char id for identical URL |
-| 4 | Mel spectrogram Mojo implementation | Cross-check numeric output tolerance (MSE threshold) vs Python reference |
-| 5 | Extractive summarizer introduction | Dual-run mode to compare lengths & basic ROUGE-L placeholder |
-| 6 | Rule-based NER baseline | Evaluate precision/recall on sample; iterate |
-| 7 | Remove Python audio decode path for WAV inputs | Fallback flag `--python-audio` retained until stable |
-| 8 | Whisper native/FFI integration | Start with CPU path; add GPU later; gating flag `--native-whisper` |
+M8: Packaging and release (1–2 days)
+- Release binaries for macOS (arm64/x86_64) and Linux.
+- Versioning and CHANGELOG (Conventional Commits).
 
----
-## Testing Strategy
-- Golden sample directory: `testdata/sample_short.wav`, known transcript snippet
-- Snapshot tests for JSON (ignoring time/version fields)
-- Numeric tolerance tests for mel spectrogram vs reference (abs diff < 1e-5 average)
-- Performance regression guard: fail benchmark job if total_time > baseline * 1.25
+## Risks and mitigations
+- YouTube without yt-dlp is non-trivial: mark as deferred or experimental; focus on direct URLs/RSS first.
+- Codec coverage: rely on symphonia; document unsupported formats; provide helpful errors.
+- LLM determinism for tests: use constrained prompts; snapshot with tolerance or skip in CI.
+- GPU backend variance: detect at runtime; CPU fallback; diagnostics.
 
----
-## Tooling & Automation
-- Add `scripts/gen_benchmark_report.py` (temporary Python ok) to render markdown tables (removed later)
-- GitHub Actions (future): build + run minimal audio test pipeline headless
-- Add `make` (or `just`) targets: `build`, `bench`, `test`, `pure` (pure mojo build attempt)
+## Testing strategy
+- Unit tests per crate; integration tests for pipeline and CLI.
+- Include tiny audio samples for decode/transcribe smoke tests.
+- Feature flags: offline/no-network for CI, cpu-only mode, small-models.
+- JSON schema validation for outputs (entities removed).
 
----
-## Risks & Mitigations
-| Risk | Impact | Mitigation |
-|------|--------|------------|
-| Whisper native port complexity | Timeline slip | Stage via mel + encoder partial; start with decode wrappers |
-| Performance regressions | Undermine rationale | Continuous benchmarks & threshold alerts |
-| Feature parity drift (NER quality) | User dissatisfaction | Document limitations, incremental improvement roadmap |
-| Over-fragmentation early | Slow velocity | Delay physical file split until traits stable |
-| JSON writer bugs | Corrupt output | Fuzz small random objects; snapshot test |
+## Documentation
+- arc42 architecture in docs/architecture; update diagrams to remove NER and Python.
+- Quickstart and troubleshooting guides; GPU setup notes (MPS/CUDA/ROCm where relevant).
 
----
-## Acceptance Metrics (End State)
-- Pure Mojo path (except external tools) executable with `--pure-mojo` on WAV input
-- ≥80% lines of logic Mojo (measured by excluding adapters directory)
-- Performance: total wall time improvement ≥15% vs original Python-integrated baseline on benchmark clip
-- Memory usage reduction ≥20% (no duplicate Python arrays)
-- Cold start model load eliminated in warm runs (cache)
-
----
-## Immediate Next Sprint (Actionable Backlog)
-1. Introduce `types` (ProcessingResult, Entity, TranscriptSegment) & native JSON writer
-2. Add hashing util; remove hashlib in pipeline
-3. Wrap transcription in `Transcriber` trait (Python adapter)
-4. Introduce logging module & replace prints (keep CLI summary prints)
-5. Add benchmark harness capturing stage timings
-(Then review before proceeding to mel spectrogram implementation.)
-
----
-## Review Checklist for This Plan
-- Are phase boundaries clear & value-based?
-- Any missing dependencies or hidden Python calls?
-- Is extractive summarization acceptable interim vs abstractive?
-- Priority of NER vs summarization correct for user goals?
-
-Provide feedback; upon approval I will begin Immediate Sprint tasks and open structured follow-up docs (arc42 alignment afterwards).
+## Next steps (M0 start)
+1) Scaffold cargo workspace and initial crates (types, fetcher, decoder, transcribe, summarize, pipeline) and bin/pcp-cli.
+2) Add docs/ skeleton with arc42 placeholders and initial d2 diagram stubs.
+3) Implement Fetcher happy path (direct URL) and CLI that accepts --output-dir and URL, writing a skeleton JSON (no ffmpeg, store original file).
+4) Land CI with fmt/clippy/build and a single fetcher unit test.
