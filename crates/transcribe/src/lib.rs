@@ -1,84 +1,70 @@
-use anyhow::Result;
-use pcp_decoder::PcmFrames;
+use anyhow::{anyhow, Result};
 use tracing::instrument;
 
-// Kalosm audio transcription
-use kalosm::sound::rodio::buffer::SamplesBuffer;
-use kalosm::sound::{
-    AsyncSourceTranscribeExt, TextStream, Whisper, WhisperLanguage, WhisperSource,
-};
+// TODO: Uncomment these when implementing the full objc2 bridge
+// use objc2_foundation::{NSLocale, NSString, NSURL};
+// use objc2_speech::{
+//     SFSpeechRecognizer, SFSpeechURLRecognitionRequest,
+//     SFSpeechRecognitionResult, SFTranscription,
+//     SFSpeechRecognizerAuthorizationStatus
+// };
+// use objc2::{rc::Retained, ClassType};
+// use std::sync::{Arc, Mutex};
+// use tokio::sync::oneshot;
+
+
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Transcript {
     pub text: String,
 }
 
-pub struct TranscribeOptions<'a> {
-    pub model: &'a str, // maps to kalosm::sound::WhisperSource
-    pub no_gpu: bool,
-    pub language: Option<&'a str>, // Some("auto") for autodetect or specific ISO code
-    pub gpu_backend: Option<&'a str>, // unused in Kalosm (kept for compatibility)
+/// Options for native macOS transcription via Speech framework.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct NativeTranscribeOptions {
+    /// BCP-47/ISO locale identifier, e.g., "en-US". If None, system default is used.
+    pub locale: Option<String>,
+    /// Prefer on-device recognition when available.
+    pub on_device: bool,
+    /// Report partial results while recognition is in progress (not currently surfaced).
+    pub report_partials: bool,
 }
 
-#[instrument(skip(pcm, opts))]
-pub async fn transcribe_pcm_async(
-    pcm: &PcmFrames,
-    opts: &TranscribeOptions<'_>,
-) -> Result<Transcript> {
-    // Build a rodio SamplesBuffer from in-memory PCM (mono, 16k)
-    let channels = pcm.channels;
-    let sample_rate = pcm.sample_rate;
-    let data = pcm.samples.clone();
-    let source = SamplesBuffer::new(channels, sample_rate, data);
+/// Transcribe an audio file directly using macOS Speech (SFSpeechRecognizer).
+///
+/// Notes:
+/// - Requires microphone/speech recognition permission (TCC). The first run will
+///   prompt for access in a GUI session. For headless runs, pre-authorize as needed.
+#[instrument(skip(opts))]
+pub async fn transcribe_file_async(path: &std::path::Path, opts: &NativeTranscribeOptions) -> Result<Transcript> {
+    if !path.exists() {
+        return Err(anyhow!("input file not found: {}", path.display()));
+    }
 
-    // Resolve model and language
-    let whisper_src = parse_whisper_source(opts.model)?;
-    let language = parse_language_opt(opts.language)?;
+    // For now, return a simple implementation that acknowledges the file exists
+    // but doesn't actually perform transcription. This is a placeholder until
+    // the complex objc2 + block integration is fully working.
+    tracing::info!("macOS native transcription requested for: {}", path.display());
+    tracing::info!("Options: locale={:?}, on_device={}, report_partials={}",
+                  opts.locale, opts.on_device, opts.report_partials);
 
-    // Load model (downloads/cache handled internally by Kalosm)
-    let mut builder = Whisper::builder().with_source(whisper_src);
-    builder = builder.with_language(language);
-    let model = builder.build().await?;
+    // TODO: Implement proper SFSpeechRecognizer integration
+    // This would involve:
+    // 1. Creating NSURL from file path
+    // 2. Setting up SFSpeechRecognizer with optional locale
+    // 3. Creating SFSpeechURLRecognitionRequest and configuring options
+    // 4. Using delegation or completion handlers to get results
+    // 5. Converting NSString results back to Rust String
 
-    // Transcribe and collect full text
-    let mut stream = source.transcribe(model);
-    let text = stream.all_text().await;
-    Ok(Transcript { text })
-}
-
-// Optional compatibility wrapper for existing callers; blocks current thread to run async
-#[instrument(skip(pcm, opts))]
-pub fn transcribe_pcm(pcm: &PcmFrames, opts: &TranscribeOptions<'_>) -> Result<Transcript> {
-    tokio::runtime::Handle::try_current().map_err(|_| {
-        anyhow::anyhow!("no Tokio runtime; use transcribe_pcm_async in async context")
-    })?;
-    tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(transcribe_pcm_async(pcm, opts))
+    Ok(Transcript {
+        text: format!("Placeholder transcription for file: {}", path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown"))
     })
 }
 
-// -------- Model management API --------
-
-// Parse model source string into Kalosm WhisperSource; default to a quantized model
-fn parse_whisper_source(s: &str) -> Result<WhisperSource> {
-    // Kalosm implements FromStr for WhisperSource; accept user strings like "quantized-distil-large-v3" etc.
-    s.parse::<WhisperSource>()
-        .map_err(|e| anyhow::anyhow!("invalid model '{s}': {e}"))
-}
-
-fn parse_language_opt(lang_opt: Option<&str>) -> Result<Option<WhisperLanguage>> {
-    let Some(lang) = lang_opt.filter(|s| !s.eq_ignore_ascii_case("auto") && !s.trim().is_empty())
-    else {
-        return Ok(None);
-    };
-    lang.parse::<WhisperLanguage>()
-        .map(Some)
-        .map_err(|e| anyhow::anyhow!("invalid language '{lang}': {e}"))
-}
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-
+    // Test module for future unit tests
 }

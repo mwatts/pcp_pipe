@@ -12,25 +12,9 @@ struct Args {
     #[arg(long, default_value = "./podcast_output")]
     output_dir: String,
 
-    /// Disable GPU acceleration
-    #[arg(long)]
-    no_gpu: bool,
-
-    /// Whisper model name (tiny|base|small|medium|large-v3)
-    #[arg(long, default_value = "medium")]
-    whisper_model: String,
-
     /// Transcription language (ISO code) or "auto" for autodetect
     #[arg(long, default_value = "auto")]
     language: String,
-
-    /// GPU backend to use if available (cpu|metal|opencl)
-    #[arg(long, default_value = "cpu")]
-    gpu: String,
-
-    /// Show model download progress in the CLI output
-    #[arg(long)]
-    progress: bool,
 
     /// Source URL(s) to process
     #[arg(value_name = "URL", num_args = 1..)]
@@ -45,11 +29,7 @@ async fn main() -> Result<()> {
     for url in &args.urls {
         tracing::info!(url, output_dir = %args.output_dir, "starting pipeline run");
         let cfg = pcp_pipeline::TranscriptionConfig {
-            model: args.whisper_model.clone(),
-            no_gpu: args.no_gpu,
             language: args.language.clone(),
-            gpu: args.gpu.clone(),
-            progress: args.progress,
         };
         let result = run_one(url, &args.output_dir, cfg).await?;
         tracing::info!(path = %result.audio_file_path, "download complete");

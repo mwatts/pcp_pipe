@@ -9,5 +9,4 @@ pcp-types = { path = "../types" }
 tracing = { workspace = true }
 pcp-fetcher = { path = "../fetcher" }
 tokio = { workspace = true }
-pcp-decoder = { path = "../decoder" }
 pcp-transcribe = { path = "../transcribe" }
