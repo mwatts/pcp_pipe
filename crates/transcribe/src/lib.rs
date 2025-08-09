@@ -150,49 +150,58 @@ impl ModelManager {
             }
         }
 
-        let mut resp =
-            reqwest::blocking::get(spec.url).with_context(|| format!("GET {}", spec.url))?;
-        let total = resp.content_length();
-        let mut hasher = Sha256::new();
-        let mut tmp = std::fs::File::create(paths.model_dir.join("model.bin.download"))
-            .context("create temp model file")?;
-        let mut downloaded: u64 = 0;
-        let mut last_log = std::time::Instant::now();
-        let mut buf = [0u8; 1024 * 64];
-        loop {
-            let n = resp.read(&mut buf).context("read chunk")?;
-            if n == 0 {
-                break;
-            }
-            hasher.update(&buf[..n]);
-            std::io::Write::write_all(&mut tmp, &buf[..n]).context("write chunk")?;
-            downloaded += n as u64;
-            if last_log.elapsed().as_millis() > 500 {
-                if let Some(t) = total {
-                    let pct = (downloaded as f64 / t as f64) * 100.0;
-                    tracing::info!(
-                        downloaded,
-                        total = t,
-                        percent = format!("{pct:.1}"),
-                        "downloading model"
-                    );
-                } else {
-                    tracing::info!(downloaded, "downloading model");
+        // Perform the blocking network download on a dedicated OS thread to avoid
+        // interacting with a running Tokio runtime.
+        let url = spec.url.to_string();
+        let tmp_path = paths.model_dir.join("model.bin.download");
+        let final_path = paths.model_file.clone();
+        let checksum_path = Self::checksum_path(&final_path);
+        let handle = std::thread::spawn(move || -> Result<()> {
+            let mut resp = reqwest::blocking::get(&url).with_context(|| format!("GET {}", url))?;
+            let total = resp.content_length();
+            let mut hasher = Sha256::new();
+            let mut tmp = std::fs::File::create(&tmp_path).context("create temp model file")?;
+            let mut downloaded: u64 = 0;
+            let mut last_log = std::time::Instant::now();
+            let mut buf = [0u8; 1024 * 64];
+            loop {
+                let n = resp.read(&mut buf).context("read chunk")?;
+                if n == 0 {
+                    break;
                 }
-                last_log = std::time::Instant::now();
+                hasher.update(&buf[..n]);
+                std::io::Write::write_all(&mut tmp, &buf[..n]).context("write chunk")?;
+                downloaded += n as u64;
+                if last_log.elapsed().as_millis() > 500 {
+                    if let Some(t) = total {
+                        let pct = (downloaded as f64 / t as f64) * 100.0;
+                        tracing::info!(
+                            downloaded,
+                            total = t,
+                            percent = format!("{pct:.1}"),
+                            "downloading model"
+                        );
+                    } else {
+                        tracing::info!(downloaded, "downloading model");
+                    }
+                    last_log = std::time::Instant::now();
+                }
             }
-        }
-        // Validate size if known
-        if let Some(t) = total {
-            anyhow::ensure!(downloaded == t, "incomplete download: {downloaded}/{t}");
-        }
-        let hex = hex::encode(hasher.finalize());
-        // Move into place
-        let final_path = &paths.model_file;
-        std::fs::rename(paths.model_dir.join("model.bin.download"), final_path)
-            .context("move model into place")?;
-        self.write_stored_checksum(final_path, &hex)?;
-        Ok(final_path.clone())
+            // Validate size if known
+            if let Some(t) = total {
+                anyhow::ensure!(downloaded == t, "incomplete download: {downloaded}/{t}");
+            }
+            let hex = hex::encode(hasher.finalize());
+            // Move into place
+            std::fs::rename(&tmp_path, &final_path).context("move model into place")?;
+            std::fs::write(&checksum_path, format!("{}\n", hex)).context("write checksum file")?;
+            Ok(())
+        });
+
+        handle
+            .join()
+            .map_err(|_| anyhow::anyhow!("model download thread panicked"))??;
+        Ok(paths.model_file)
     }
 
     pub fn load_model(&self, model_name: &str) -> Result<whisper_rs::WhisperContext> {
