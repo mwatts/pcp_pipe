@@ -2,7 +2,7 @@
 
 This plan reflects updated constraints: pure-Rust downloads (no yt-dlp), no ffmpeg/WAV conversion, remove entity extraction and Python entirely, and use kalosm to host/run LLMs locally in Rust.
 
-Docs for kalosm: https://docs.rs/kalosm/latest/kalosm/index.html
+Docs for kalosm: https://docs.rs/kalosm/latest/kalosm/index.html and at https://floneum.com/kalosm/docs/
 
 ## Requirements checklist (updated)
 - [ ] CLI with options: --output-dir, --whisper-model [tiny|base|small|medium|large-v3], --no-gpu, --help

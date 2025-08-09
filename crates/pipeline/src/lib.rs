@@ -3,7 +3,7 @@
 use anyhow::Result;
 use pcp_decoder::decode_to_pcm;
 use pcp_fetcher::fetch_to_file;
-use pcp_transcribe::{TranscribeOptions, transcribe_pcm};
+use pcp_transcribe::{TranscribeOptions, transcribe_pcm_async};
 use pcp_types::ProcessingResult;
 use std::time::Instant;
 
@@ -32,7 +32,7 @@ pub async fn run_one(
         language: Some(cfg.language.as_str()),
         gpu_backend: Some(cfg.gpu.as_str()),
     };
-    let transcript = transcribe_pcm(&pcm, &opts)?;
+    let transcript = transcribe_pcm_async(&pcm, &opts).await?;
     let processing_time = start.elapsed().as_secs_f64();
 
     Ok(ProcessingResult {

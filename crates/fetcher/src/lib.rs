@@ -722,8 +722,8 @@ async fn compute_sha256_file(path: &Path) -> Result<String> {
 mod tests {
     use super::*;
     use mockito::Server;
-    use tokio::fs;
     use sha2::{Digest, Sha256};
+    use tokio::fs;
 
     #[tokio::test]
     async fn resume_with_range_206() {
@@ -1020,7 +1020,9 @@ mod tests {
         let sha_path = dest.with_extension("mp3.sha256");
         fs::write(&sha_path, &expected).await.unwrap();
 
-        let res = fetch_to_file(&url, out_dir.to_str().unwrap()).await.unwrap();
+        let res = fetch_to_file(&url, out_dir.to_str().unwrap())
+            .await
+            .unwrap();
         assert_eq!(res.sha256, expected);
         assert!(res.saved_path.ends_with("song.mp3"));
     }

@@ -5,16 +5,10 @@ edition.workspace = true
 
 [features]
 default = []
-# Build-time accelerators (forwarded to whisper-rs). Enable one:
-# -F pcp-transcribe/gpu-metal (Apple Silicon)
-# -F pcp-transcribe/gpu-openmp (CPU OpenMP parallelism)
-gpu-metal = ["whisper-rs/metal"]
-gpu-openmp = ["whisper-rs/openmp"]
 
 [dependencies]
 anyhow = { workspace = true }
 pcp-decoder = { path = "../decoder" }
-whisper-rs = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 reqwest = { workspace = true }
 directories = { workspace = true }
@@ -22,6 +16,8 @@ num_cpus = { workspace = true }
 tracing = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+kalosm = { workspace = true }
+tokio = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -7,7 +7,7 @@ use symphonia::core::codecs::DecoderOptions;
 use symphonia::core::errors::Error;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::probe::ProbeResult;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 pub struct PcmFrames {
     pub samples: Vec<f32>, // interleaved mono for now
@@ -18,6 +18,7 @@ pub struct PcmFrames {
 pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
     // Open media source
     info!(%path, "decoder: opening file");
+    let t0 = std::time::Instant::now();
     let file = File::open(path).with_context(|| format!("open file: {}", path))?;
     let msrc = MediaSourceStream::new(Box::new(file), Default::default());
 
@@ -34,10 +35,7 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
     let mut format = probed.format;
 
     // Select default audio track
-    let track = format
-        .default_track()
-        .context("no default audio track")?
-        .id;
+    let track = format.default_track().context("no default audio track")?.id;
     debug!(track_id=%track, "decoder: selected default audio track");
 
     // Create decoder
@@ -63,14 +61,15 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
     let mut sample_rate = params.sample_rate.unwrap_or(16_000) as u32;
     let _channels_src = params.channels.map(|c| c.count() as u16).unwrap_or(1);
 
-    let mut pkt_count: u64 = 0;
+    let mut _pkt_count: u64 = 0;
+    let mut malformed_count: u64 = 0;
+    let mut last_warn = std::time::Instant::now();
     loop {
         let packet = match format.next_packet() {
             Ok(p) => {
-                pkt_count += 1;
-                if pkt_count % 200 == 0 {
-                    debug!(packets=pkt_count, "decoder: reading packets");
-                }
+                _pkt_count += 1;
+                // keep quiet by default; uncomment to trace packet cadence
+                // if _pkt_count % 200 == 0 { debug!(packets=_pkt_count, "decoder: reading packets"); }
                 p
             }
             Err(Error::IoError(_)) => break,
@@ -84,7 +83,7 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                 // audio_buf is an AudioBufferRef (Planar or Interleaved, various sample types)
                 match audio_buf {
                     AudioBufferRef::F32(buf) => {
-                        debug!(frames=buf.frames(), "decoder: f32 buffer");
+                        debug!(frames = buf.frames(), "decoder: f32 buffer");
                         let spec = *buf.spec();
                         sample_rate = spec.rate;
                         let _ = spec.channels.count();
@@ -99,7 +98,7 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                         }
                     }
                     AudioBufferRef::F64(buf) => {
-                        debug!(frames=buf.frames(), "decoder: f64 buffer");
+                        debug!(frames = buf.frames(), "decoder: f64 buffer");
                         let spec = *buf.spec();
                         sample_rate = spec.rate;
                         let _ = spec.channels.count();
@@ -114,7 +113,7 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                         }
                     }
                     AudioBufferRef::S16(buf) => {
-                        debug!(frames=buf.frames(), "decoder: s16 buffer");
+                        debug!(frames = buf.frames(), "decoder: s16 buffer");
                         let spec = *buf.spec();
                         sample_rate = spec.rate;
                         let _ = spec.channels.count();
@@ -129,7 +128,7 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                         }
                     }
                     AudioBufferRef::U8(buf) => {
-                        debug!(frames=buf.frames(), "decoder: u8 buffer");
+                        debug!(frames = buf.frames(), "decoder: u8 buffer");
                         let spec = *buf.spec();
                         sample_rate = spec.rate;
                         let _ = spec.channels.count();
@@ -161,25 +160,47 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                     decoder = symphonia::default::get_codecs()
                         .make(&new_params, &DecoderOptions { verify: false })
                         .context("reset decoder")?;
-                    if let Some(sr) = new_params.sample_rate { sample_rate = sr as u32; }
+                    if let Some(sr) = new_params.sample_rate {
+                        sample_rate = sr as u32;
+                    }
                 } else {
                     // If we cannot find the track again, abort with context.
-                    return Err(anyhow::anyhow!("decoder reset required but track params missing")).context("decoder reset");
+                    return Err(anyhow::anyhow!(
+                        "decoder reset required but track params missing"
+                    ))
+                    .context("decoder reset");
                 }
                 continue;
             }
             Err(Error::DecodeError(_)) => {
-                // Non-fatal; skip corrupt packet
-                continue
+                // Non-fatal; skip corrupt packet. Throttle warnings.
+                malformed_count += 1;
+                if last_warn.elapsed().as_secs_f32() > 2.0 {
+                    warn!(malformed_count, "decoder: skipping malformed frames");
+                    last_warn = std::time::Instant::now();
+                }
+                continue;
             }
             Err(e) => return Err(e).context("decode packet")?,
         }
     }
 
     // Resample to 16 kHz mono for Whisper compatibility
-    debug!(from=sample_rate, to=16_000, "decoder: resampling linear");
+    debug!(
+        from = sample_rate,
+        to = 16_000,
+        "decoder: resampling linear"
+    );
     let samples = resample_linear(&samples, sample_rate, 16_000);
-    info!(frames=samples.len(), "decoder: done");
+    let dt = t0.elapsed();
+    let frames = samples.len();
+    let secs = frames as f64 / 16_000.0;
+    let x_rt = if dt.as_secs_f64() > 0.0 {
+        secs / dt.as_secs_f64()
+    } else {
+        0.0
+    };
+    info!(frames, seconds=secs, elapsed=?dt, x_real_time=format!("{x_rt:.2}x"), malformed=malformed_count, "decoder: done");
     Ok(PcmFrames {
         samples,
         sample_rate: 16_000,
