@@ -146,6 +146,28 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                     _ => {}
                 }
             }
+            Err(Error::ResetRequired) => {
+                // According to Symphonia: after a seek (or certain stream events), the decoder must be reset.
+                // Re-create the decoder with the (potentially updated) codec params for this track and continue.
+                if let Some(t) = format.tracks().iter().find(|t| t.id == track) {
+                    let new_params = t.codec_params.clone();
+                    debug!(
+                        track_id=%track,
+                        sample_rate=?new_params.sample_rate,
+                        channels=?new_params.channels.map(|c| c.count()),
+                        codec=?new_params.codec,
+                        "decoder: ResetRequired signaled; resetting decoder"
+                    );
+                    decoder = symphonia::default::get_codecs()
+                        .make(&new_params, &DecoderOptions { verify: false })
+                        .context("reset decoder")?;
+                    if let Some(sr) = new_params.sample_rate { sample_rate = sr as u32; }
+                } else {
+                    // If we cannot find the track again, abort with context.
+                    return Err(anyhow::anyhow!("decoder reset required but track params missing")).context("decoder reset");
+                }
+                continue;
+            }
             Err(Error::DecodeError(_)) => {
                 // Non-fatal; skip corrupt packet
                 continue
