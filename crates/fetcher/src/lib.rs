@@ -149,11 +149,13 @@ pub async fn fetch_to_file(url: &str, out_dir: &str) -> Result<FetchResult> {
 
     // If file and sha256 sidecar exist, verify and early return without GET
     if dest.exists() && fs::metadata(&sha_path).await.is_ok() {
+        info!(path=?dest, sha_path=?sha_path, "fetcher: existing file and sha256 sidecar found; verifying");
         if let Ok(expected) = fs::read_to_string(&sha_path).await {
             let expected = expected.trim().to_string();
             if !expected.is_empty() {
                 let actual = compute_sha256_file(&dest).await?;
                 if actual == expected {
+                    info!(path=?dest, sha256=%actual, "fetcher: checksum verified; skipping GET");
                     let bytes_written = dest.metadata().ok().map(|m| m.len());
                     let now = chrono::Utc::now().to_rfc3339();
                     let new_filename = dest.file_name().unwrap().to_string_lossy().into_owned();
@@ -178,6 +180,7 @@ pub async fn fetch_to_file(url: &str, out_dir: &str) -> Result<FetchResult> {
                     });
                 } else {
                     // Corrupt or incomplete file; remove and restart download fresh (no resume/If-None-Match)
+                    info!(path=?dest, expected=%expected, actual=%actual, "fetcher: checksum mismatch; deleting and re-downloading");
                     let _ = fs::remove_file(&dest).await;
                     let _ = fs::remove_file(&sha_path).await;
                     let _ = fs::remove_file(&etag_path).await;
@@ -208,10 +211,13 @@ pub async fn fetch_to_file(url: &str, out_dir: &str) -> Result<FetchResult> {
     if resp.status() == reqwest::StatusCode::NOT_MODIFIED {
         // Nothing to do, keep existing file; compute checksum if missing
         let sha256 = if let Ok(s) = fs::read_to_string(&sha_path).await {
+            info!(path=?dest, "fetcher: 304 Not Modified; checksum sidecar present");
             s.trim().to_string()
         } else {
+            info!(path=?dest, "fetcher: 304 Not Modified; checksum missing; recomputing");
             let calc = compute_sha256_file(&dest).await?;
             let _ = fs::write(&sha_path, &calc).await;
+            info!(sha_path=?sha_path, sha256=%calc, "fetcher: wrote sha256 sidecar after 304");
             calc
         };
         let bytes_written = dest.metadata().ok().map(|m| m.len());
