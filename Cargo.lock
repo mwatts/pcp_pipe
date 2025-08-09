@@ -157,6 +157,15 @@ dependencies = [
 
 [[package]]
 name = "block2"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2c132eebf10f5cad5289222520a4a058514204aed6d791f1cf4fe8088b82d15f"
+dependencies = [
+ "objc2 0.5.2",
+]
+
+[[package]]
+name = "block2"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "340d2f0bdb2a43c1d3cd40513185b2bd7def0aa1052f956455114bc98f82dcf2"
@@ -1294,7 +1303,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "900831247d2fe1a09a683278e5384cfb8c80c79fe6b166f9d14bfdde0ea1b03c"
 dependencies = [
  "bitflags",
- "block2",
+ "block2 0.6.1",
  "libc",
  "objc2 0.6.1",
  "objc2-core-foundation",
@@ -1317,7 +1326,7 @@ version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "079982d4f98e9d92fedaec644fc522c6f7726c2f989e0a0222b2ae5c6f38de39"
 dependencies = [
- "block2",
+ "block2 0.6.1",
  "objc2 0.6.1",
  "objc2-avf-audio",
  "objc2-core-media",
@@ -1481,6 +1490,7 @@ name = "pcp-transcribe"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "block2 0.5.1",
  "objc2 0.5.2",
  "objc2-foundation",
  "objc2-speech",
