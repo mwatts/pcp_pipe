@@ -1448,6 +1448,7 @@ dependencies = [
  "anyhow",
  "symphonia",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]

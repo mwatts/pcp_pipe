@@ -7,6 +7,7 @@ use symphonia::core::codecs::DecoderOptions;
 use symphonia::core::errors::Error;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::probe::ProbeResult;
+use tracing::{debug, info};
 
 pub struct PcmFrames {
     pub samples: Vec<f32>, // interleaved mono for now
@@ -16,10 +17,12 @@ pub struct PcmFrames {
 
 pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
     // Open media source
+    info!(%path, "decoder: opening file");
     let file = File::open(path).with_context(|| format!("open file: {}", path))?;
     let msrc = MediaSourceStream::new(Box::new(file), Default::default());
 
     // Probe container
+    debug!("decoder: probing container");
     let probed: ProbeResult = symphonia::default::get_probe()
         .format(
             &Default::default(),
@@ -31,7 +34,11 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
     let mut format = probed.format;
 
     // Select default audio track
-    let track = format.default_track().context("no default audio track")?.id;
+    let track = format
+        .default_track()
+        .context("no default audio track")?
+        .id;
+    debug!(track_id=%track, "decoder: selected default audio track");
 
     // Create decoder
     let params = format
@@ -41,6 +48,12 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
         .unwrap()
         .codec_params
         .clone();
+    debug!(
+        sample_rate=?params.sample_rate,
+        channels=?params.channels.map(|c| c.count()),
+        codec=?params.codec,
+        "decoder: creating codec"
+    );
     let mut decoder = symphonia::default::get_codecs()
         .make(&params, &DecoderOptions { verify: false })
         .context("make decoder")?;
@@ -50,9 +63,16 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
     let mut sample_rate = params.sample_rate.unwrap_or(16_000) as u32;
     let _channels_src = params.channels.map(|c| c.count() as u16).unwrap_or(1);
 
+    let mut pkt_count: u64 = 0;
     loop {
         let packet = match format.next_packet() {
-            Ok(p) => p,
+            Ok(p) => {
+                pkt_count += 1;
+                if pkt_count % 200 == 0 {
+                    debug!(packets=pkt_count, "decoder: reading packets");
+                }
+                p
+            }
             Err(Error::IoError(_)) => break,
             Err(e) => return Err(e).context("read packet")?,
         };
@@ -64,6 +84,7 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                 // audio_buf is an AudioBufferRef (Planar or Interleaved, various sample types)
                 match audio_buf {
                     AudioBufferRef::F32(buf) => {
+                        debug!(frames=buf.frames(), "decoder: f32 buffer");
                         let spec = *buf.spec();
                         sample_rate = spec.rate;
                         let _ = spec.channels.count();
@@ -78,6 +99,7 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                         }
                     }
                     AudioBufferRef::F64(buf) => {
+                        debug!(frames=buf.frames(), "decoder: f64 buffer");
                         let spec = *buf.spec();
                         sample_rate = spec.rate;
                         let _ = spec.channels.count();
@@ -92,6 +114,7 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                         }
                     }
                     AudioBufferRef::S16(buf) => {
+                        debug!(frames=buf.frames(), "decoder: s16 buffer");
                         let spec = *buf.spec();
                         sample_rate = spec.rate;
                         let _ = spec.channels.count();
@@ -106,6 +129,7 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                         }
                     }
                     AudioBufferRef::U8(buf) => {
+                        debug!(frames=buf.frames(), "decoder: u8 buffer");
                         let spec = *buf.spec();
                         sample_rate = spec.rate;
                         let _ = spec.channels.count();
@@ -122,13 +146,18 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                     _ => {}
                 }
             }
-            Err(Error::DecodeError(_)) => continue,
+            Err(Error::DecodeError(_)) => {
+                // Non-fatal; skip corrupt packet
+                continue
+            }
             Err(e) => return Err(e).context("decode packet")?,
         }
     }
 
     // Resample to 16 kHz mono for Whisper compatibility
+    debug!(from=sample_rate, to=16_000, "decoder: resampling linear");
     let samples = resample_linear(&samples, sample_rate, 16_000);
+    info!(frames=samples.len(), "decoder: done");
     Ok(PcmFrames {
         samples,
         sample_rate: 16_000,
