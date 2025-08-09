@@ -36,6 +36,12 @@ test-ci:
 run url="https://overcast.fm/+AAA6x97Mzdc":
     cargo run -p pcp-cli -- {{url}}
 
+gpu-metal-build:
+    cargo build -F pcp-transcribe/gpu-metal
+
+gpu-openmp-build:
+    cargo build -F pcp-transcribe/gpu-openmp
+
 clean:
     cargo clean
 

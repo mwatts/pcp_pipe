@@ -1,3 +1,47 @@
+
+# PCP Pipe - High-Performance Podcast Processing Pipeline
+
+Production-grade, Rust-only podcast processing: fetch, decode, transcribe (Whisper), and prepare for summarization—locally, with no external inference APIs.
+
+## Current features
+
+- Robust fetcher with resume, ETag, RSS/HTML resolution, safe filenames
+- Pure-Rust decoding (symphonia) to 16 kHz mono PCM
+- Whisper transcription with cached model management
+- Optional Metal/OpenCL backend via build features
+- Tracing, tests, and conventional workspace layout
+
+## Usage
+
+Run the CLI:
+
+```
+cargo run -p pcp-cli -- --whisper-model medium --language auto --gpu cpu <url>
+```
+
+## GPU acceleration
+
+Optional: build whisper with Metal or OpenCL.
+
+Build with Metal (macOS):
+
+```
+cargo build -F pcp-transcribe/gpu-metal
+```
+
+Build with OpenMP (CPU parallelism):
+
+```
+cargo build -F pcp-transcribe/gpu-openmp
+```
+
+At runtime, you can hint a backend via CLI:
+
+```
+pcp --gpu metal --whisper-model medium --language auto <url>
+```
+
+Note: runtime hint is advisory; the backend must be enabled at build-time via features.
 # PCP Pipe - High-Performance Podcast Processing Pipeline
 
 A blazing-fast, GPU-accelerated podcast processing pipeline built in **Rust** that downloads, transcribes, analyzes, and summarizes podcast audio using state-of-the-art ML models - all running locally without external API dependencies.

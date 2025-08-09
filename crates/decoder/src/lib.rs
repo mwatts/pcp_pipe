@@ -21,7 +21,12 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
 
     // Probe container
     let probed: ProbeResult = symphonia::default::get_probe()
-        .format(&Default::default(), msrc, &Default::default(), &Default::default())
+        .format(
+            &Default::default(),
+            msrc,
+            &Default::default(),
+            &Default::default(),
+        )
         .context("probe format")?;
     let mut format = probed.format;
 
@@ -51,7 +56,9 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
             Err(Error::IoError(_)) => break,
             Err(e) => return Err(e).context("read packet")?,
         };
-        if packet.track_id() != track { continue; }
+        if packet.track_id() != track {
+            continue;
+        }
         match decoder.decode(&packet) {
             Ok(audio_buf) => {
                 // audio_buf is an AudioBufferRef (Planar or Interleaved, various sample types)
@@ -64,7 +71,9 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                         let frames = buf.frames();
                         for i in 0..frames {
                             let mut acc = 0.0f32;
-                            for ch in 0..chans { acc += buf.chan(ch)[i]; }
+                            for ch in 0..chans {
+                                acc += buf.chan(ch)[i];
+                            }
                             samples.push(acc / chans as f32);
                         }
                     }
@@ -76,7 +85,9 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                         let frames = buf.frames();
                         for i in 0..frames {
                             let mut acc = 0.0f32;
-                            for ch in 0..chans { acc += buf.chan(ch)[i] as f32; }
+                            for ch in 0..chans {
+                                acc += buf.chan(ch)[i] as f32;
+                            }
                             samples.push(acc / chans as f32);
                         }
                     }
@@ -88,7 +99,9 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                         let frames = buf.frames();
                         for i in 0..frames {
                             let mut acc = 0.0f32;
-                            for ch in 0..chans { acc += (buf.chan(ch)[i] as f32) / i16::MAX as f32; }
+                            for ch in 0..chans {
+                                acc += (buf.chan(ch)[i] as f32) / i16::MAX as f32;
+                            }
                             samples.push(acc / chans as f32);
                         }
                     }
@@ -100,7 +113,9 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
                         let frames = buf.frames();
                         for i in 0..frames {
                             let mut acc = 0.0f32;
-                            for ch in 0..chans { acc += (buf.chan(ch)[i] as f32 - 128.0) / 128.0; }
+                            for ch in 0..chans {
+                                acc += (buf.chan(ch)[i] as f32 - 128.0) / 128.0;
+                            }
                             samples.push(acc / chans as f32);
                         }
                     }
@@ -114,7 +129,11 @@ pub fn decode_to_pcm(path: &str) -> Result<PcmFrames> {
 
     // Resample to 16 kHz mono for Whisper compatibility
     let samples = resample_linear(&samples, sample_rate, 16_000);
-    Ok(PcmFrames { samples, sample_rate: 16_000, channels: 1 })
+    Ok(PcmFrames {
+        samples,
+        sample_rate: 16_000,
+        channels: 1,
+    })
 }
 
 fn resample_linear(input: &[f32], src_rate: u32, dst_rate: u32) -> Vec<f32> {
@@ -175,7 +194,9 @@ mod tests {
         f.write_all(&data_size.to_le_bytes()).unwrap();
         // samples
         let mut buf = Vec::with_capacity(data.len() * 2);
-        for &s in data { buf.extend_from_slice(&s.to_le_bytes()); }
+        for &s in data {
+            buf.extend_from_slice(&s.to_le_bytes());
+        }
         f.write_all(&buf).unwrap();
     }
 
@@ -203,6 +224,12 @@ mod tests {
         // Length ratio approximately 16000 / 11025
         let expected = (n as f64 * (16_000.0 / sr as f64)) as usize;
         let diff = pcm.samples.len().abs_diff(expected);
-        assert!(diff < 50, "len={} expected~{} diff={}", pcm.samples.len(), expected, diff);
+        assert!(
+            diff < 50,
+            "len={} expected~{} diff={}",
+            pcm.samples.len(),
+            expected,
+            diff
+        );
     }
 }

@@ -25,7 +25,7 @@ tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread", "fs"] }
 clap = { version = "4.5.43", features = ["derive"] }
-reqwest = { version = "0.12.22", features = ["stream", "rustls-tls", "http2"] }
+reqwest = { version = "0.12.22", features = ["stream", "rustls-tls", "http2", "blocking"] }
 url = "2.5.4"
 bytes = "1.10.1"
 sha2 = "0.10.9"
@@ -33,3 +33,7 @@ hex = "0.4.3"
 feed-rs = "2.3.1"
 futures-util = "0.3.31"
 symphonia = { version = "0.5", default-features = false, features = ["mp3", "aac", "isomp4", "ogg", "flac", "wav", "pcm"] }
+whisper-rs = "0.14.4"
+directories = "6.0.0"
+num_cpus = "1.17.0"
+tempfile = "3.20.0"
