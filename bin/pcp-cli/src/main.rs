@@ -20,7 +20,8 @@ struct Args {
     #[arg(long, default_value = "base")]
     whisper_model: String,
 
-    /// Source URL(s)
+    /// Source URL(s) to process
+    #[arg(value_name = "URL", num_args = 1..)]
     urls: Vec<String>,
 }
 
@@ -30,7 +31,9 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     for url in &args.urls {
+        tracing::info!(url, output_dir = %args.output_dir, "starting pipeline run");
         let result = run_one(url, &args.output_dir).await?;
+        tracing::info!(path = %result.audio_file_path, "download complete");
         let json = serde_json::to_string_pretty(&result)?;
         println!("{}", json);
         // Save JSON next to output dir with a stable name derived from saved file stem

@@ -48,3 +48,14 @@ tags should be used to categorize workitems. The tags should be used as follows:
 
 
 This project demonstrates production-ready Rust development with real-world ML integration, serving as both a useful tool and a reference implementation for high-performance systems programming in Rust.
+
+when adding crates, prefer libraries from crates.io with good maintenance and community support. Avoid unmaintained or niche crates unless absolutely necessary. Prioritize crates that are widely used and have a strong track record.
+
+When adding dependencies, prefer using workspace dependencies to ensure consistent versions across the project. Avoid using path dependencies unless absolutely necessary. Use versioned dependencies from crates.io whenever possible.
+
+When adding dependencies, consider the following criteria:
+- Maintenance: Is the crate actively maintained with recent commits and releases?
+- Community: Does the crate have a strong community with many users and contributors?
+- Documentation: Is the crate well-documented with clear usage instructions and examples?
+- Compatibility: Is the crate compatible with the latest stable version of Rust?
+- Performance: Does the crate have good performance characteristics for the intended use case?

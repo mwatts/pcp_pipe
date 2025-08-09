@@ -11,3 +11,4 @@ pcp-pipeline = { path = "../../crates/pipeline" }
 pcp-types = { path = "../../crates/types" }
 pcp-utils = { path = "../../crates/utils" }
 serde_json = { workspace = true }
+tracing = { workspace = true }

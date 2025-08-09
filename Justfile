@@ -33,7 +33,7 @@ test-ci:
     cargo nextest run --workspace --profile ci
 
 # Run CLI
-run url="https://example.com/audio.mp3":
+run url="https://overcast.fm/+AAA6x97Mzdc":
     cargo run -p pcp-cli -- {{url}}
 
 clean:

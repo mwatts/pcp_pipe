@@ -2,3 +2,4 @@ build/
 podcast_output/
 .venv/
 target/
+kgen.*
