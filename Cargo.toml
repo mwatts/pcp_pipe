@@ -26,7 +26,7 @@ tokio = { version = "1.47.1", features = ["macros", "rt-multi-thread", "fs"] }
 clap = { version = "4.5.43", features = ["derive"] }
 reqwest = { version = "0.12.22", features = ["stream", "rustls-tls", "http2", "blocking"] }
 url = "2.5.4"
-bytes = "1.10.1"
+bytes = "1.11.1"
 sha2 = "0.10.9"
 hex = "0.4.3"
 feed-rs = "2.3.1"
